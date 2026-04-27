@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdexcept>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -38,6 +39,14 @@ ssize_t UdpSocket::recvfrom(void* buf, size_t len, sockaddr_storage& addr) {
     socklen_t addrlen = sizeof(addr);
     return ::recvfrom(fd_, buf, len, 0,
                       reinterpret_cast<sockaddr*>(&addr), &addrlen);
+}
+
+bool UdpSocket::wait_readable(int timeout_sec) {
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(fd_, &rfds);
+    struct timeval tv{timeout_sec, 0};
+    return ::select(fd_ + 1, &rfds, nullptr, nullptr, &tv) > 0;
 }
 
 void UdpSocket::set_recv_timeout(int seconds) {
