@@ -1,5 +1,6 @@
 #include <array>
 #include <iostream>
+#include <netinet/in.h>
 
 #include "file_provider.hpp"
 #include "session.hpp"
@@ -8,7 +9,7 @@
 
 static constexpr size_t RECV_BUF_SIZE = 1024;
 
-static void run_session(ISocket& sock, const sockaddr_in& client,
+static void run_session(ISocket& sock, const sockaddr_storage& client,
                         const TftpPacket& initial, IFileProvider& files) {
     TftpSession session(files);
     std::array<uint8_t, RECV_BUF_SIZE> buf;
@@ -21,7 +22,7 @@ static void run_session(ISocket& sock, const sockaddr_in& client,
         if (session.state() == TftpSession::State::Done)
             break;
 
-        sockaddr_in from{};
+        sockaddr_storage from{};
         ssize_t n = sock.recvfrom(buf.data(), buf.size(), from);
         if (n < 0)
             break;
@@ -54,8 +55,8 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    std::string root_dir  = argc > 1 ? argv[1] : ".";
-    uint16_t    port      = argc > 2 ? static_cast<uint16_t>(std::stoi(argv[2])) : 69;
+    std::string root_dir = argc > 1 ? argv[1] : ".";
+    uint16_t    port     = argc > 2 ? static_cast<uint16_t>(std::stoi(argv[2])) : 69;
 
     LocalFileProvider files(root_dir);
     UdpSocket sock;
@@ -72,7 +73,7 @@ int main(int argc, char* argv[]) {
     std::cout << "TFTP server listening on port " << port << ", serving: " << root_dir << "\n";
 
     std::array<uint8_t, RECV_BUF_SIZE> buf;
-    sockaddr_in client{};
+    sockaddr_storage client{};
 
     while (true) {
         ssize_t n = sock.recvfrom(buf.data(), buf.size(), client);
