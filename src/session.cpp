@@ -15,16 +15,16 @@ std::optional<std::vector<uint8_t>> TftpSession::handle(const TftpPacket& pkt) {
         state_ = State::Done;
         return std::nullopt;
     }
-    return serialize(ErrorPacket{ErrorCode::IllegalOperation, "unexpected packet"});
+    return err(ErrorCode::IllegalOperation, "unexpected packet");
 }
 
 std::optional<std::vector<uint8_t>> TftpSession::on_wrq(const WrqPacket& req) {
     if (state_ != State::Idle)
-        return serialize(ErrorPacket{ErrorCode::IllegalOperation, "transfer already in progress"});
+        return err(ErrorCode::IllegalOperation, "transfer already in progress");
 
     write_stream_ = files_.create(req.filename);
     if (!write_stream_)
-        return serialize(ErrorPacket{ErrorCode::FileAlreadyExists, "file already exists or access denied"});
+        return err(ErrorCode::FileAlreadyExists, "file already exists or access denied");
 
     state_ = State::ReceivingFile;
     block_ = 0;
@@ -33,7 +33,7 @@ std::optional<std::vector<uint8_t>> TftpSession::on_wrq(const WrqPacket& req) {
 
 std::optional<std::vector<uint8_t>> TftpSession::on_data(const DataPacket& pkt) {
     if (state_ != State::ReceivingFile)
-        return serialize(ErrorPacket{ErrorCode::IllegalOperation, "unexpected DATA"});
+        return err(ErrorCode::IllegalOperation, "unexpected DATA");
 
     if (pkt.block != static_cast<uint16_t>(block_ + 1))
         return std::nullopt; // out-of-order, ignore
@@ -52,11 +52,11 @@ std::optional<std::vector<uint8_t>> TftpSession::on_data(const DataPacket& pkt) 
 
 std::optional<std::vector<uint8_t>> TftpSession::on_rrq(const RrqPacket& req) {
     if (state_ != State::Idle)
-        return serialize(ErrorPacket{ErrorCode::IllegalOperation, "transfer already in progress"});
+        return err(ErrorCode::IllegalOperation, "transfer already in progress");
 
     read_stream_ = files_.open(req.filename);
     if (!read_stream_)
-        return serialize(ErrorPacket{ErrorCode::FileNotFound, "file not found"});
+        return err(ErrorCode::FileNotFound, "file not found");
 
     state_ = State::SendingFile;
     block_ = 1;
@@ -67,7 +67,7 @@ std::optional<std::vector<uint8_t>> TftpSession::on_rrq(const RrqPacket& req) {
 
 std::optional<std::vector<uint8_t>> TftpSession::on_ack(const AckPacket& ack) {
     if (state_ != State::SendingFile)
-        return serialize(ErrorPacket{ErrorCode::IllegalOperation, "unexpected ACK"});
+        return err(ErrorCode::IllegalOperation, "unexpected ACK");
 
     if (ack.block != block_)
         return std::nullopt; // ignore out-of-order ACK
@@ -81,6 +81,11 @@ std::optional<std::vector<uint8_t>> TftpSession::on_ack(const AckPacket& ack) {
     auto data = read_block();
     final_block_sent_ = data.size() < BLOCK_SIZE;
     return serialize(DataPacket{block_, std::move(data)});
+}
+
+std::vector<uint8_t> TftpSession::err(ErrorCode code, const std::string& msg) {
+    state_ = State::Done;
+    return serialize(ErrorPacket{code, msg});
 }
 
 std::vector<uint8_t> TftpSession::read_block() {

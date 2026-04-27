@@ -32,4 +32,5 @@ private:
     std::optional<std::vector<uint8_t>> on_wrq(const WrqPacket& pkt);
     std::optional<std::vector<uint8_t>> on_data(const DataPacket& pkt);
     std::vector<uint8_t> read_block();
+    std::vector<uint8_t> err(ErrorCode code, const std::string& msg);
 };
