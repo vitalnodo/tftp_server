@@ -5,8 +5,12 @@
 std::optional<std::vector<uint8_t>> TftpSession::handle(const TftpPacket& pkt) {
     if (auto* p = std::get_if<RrqPacket>(&pkt))
         return on_rrq(*p);
+    if (auto* p = std::get_if<WrqPacket>(&pkt))
+        return on_wrq(*p);
     if (auto* p = std::get_if<AckPacket>(&pkt))
         return on_ack(*p);
+    if (auto* p = std::get_if<DataPacket>(&pkt))
+        return on_data(*p);
     if (std::get_if<ErrorPacket>(&pkt)) {
         state_ = State::Done;
         return std::nullopt;
@@ -14,12 +18,44 @@ std::optional<std::vector<uint8_t>> TftpSession::handle(const TftpPacket& pkt) {
     return serialize(ErrorPacket{ErrorCode::IllegalOperation, "unexpected packet"});
 }
 
+std::optional<std::vector<uint8_t>> TftpSession::on_wrq(const WrqPacket& req) {
+    if (state_ != State::Idle)
+        return serialize(ErrorPacket{ErrorCode::IllegalOperation, "transfer already in progress"});
+
+    write_stream_ = files_.create(req.filename);
+    if (!write_stream_)
+        return serialize(ErrorPacket{ErrorCode::FileAlreadyExists, "file already exists or access denied"});
+
+    state_ = State::ReceivingFile;
+    block_ = 0;
+    return serialize(AckPacket{0});
+}
+
+std::optional<std::vector<uint8_t>> TftpSession::on_data(const DataPacket& pkt) {
+    if (state_ != State::ReceivingFile)
+        return serialize(ErrorPacket{ErrorCode::IllegalOperation, "unexpected DATA"});
+
+    if (pkt.block != block_ + 1)
+        return std::nullopt; // out-of-order, ignore
+
+    ++block_;
+    write_stream_->write(reinterpret_cast<const char*>(pkt.data.data()),
+                         static_cast<std::streamsize>(pkt.data.size()));
+
+    if (pkt.data.size() < BLOCK_SIZE) {
+        write_stream_.reset(); // flush + commit (triggers CaptureStream destructor in mock)
+        state_ = State::Done;
+    }
+
+    return serialize(AckPacket{block_});
+}
+
 std::optional<std::vector<uint8_t>> TftpSession::on_rrq(const RrqPacket& req) {
     if (state_ != State::Idle)
         return serialize(ErrorPacket{ErrorCode::IllegalOperation, "transfer already in progress"});
 
-    stream_ = files_.open(req.filename);
-    if (!stream_)
+    read_stream_ = files_.open(req.filename);
+    if (!read_stream_)
         return serialize(ErrorPacket{ErrorCode::FileNotFound, "file not found"});
 
     state_ = State::SendingFile;
@@ -49,7 +85,7 @@ std::optional<std::vector<uint8_t>> TftpSession::on_ack(const AckPacket& ack) {
 
 std::vector<uint8_t> TftpSession::read_block() {
     std::array<uint8_t, BLOCK_SIZE> buf;
-    stream_->read(reinterpret_cast<char*>(buf.data()), BLOCK_SIZE);
-    size_t n = static_cast<size_t>(stream_->gcount());
+    read_stream_->read(reinterpret_cast<char*>(buf.data()), BLOCK_SIZE);
+    size_t n = static_cast<size_t>(read_stream_->gcount());
     return {buf.data(), buf.data() + n};
 }

@@ -26,3 +26,24 @@ std::unique_ptr<std::istream> LocalFileProvider::open(const std::string& filenam
 
     return stream;
 }
+
+std::unique_ptr<std::ostream> LocalFileProvider::create(const std::string& filename) {
+    if (!is_valid_path(filename))
+        return nullptr;
+
+    auto root     = fs::path(root_dir_);
+    auto full     = fs::weakly_canonical(root / filename);
+    auto relative = full.lexically_relative(root);
+
+    if (relative.empty() || *relative.begin() == "..")
+        return nullptr;
+
+    if (fs::exists(full))
+        return nullptr;
+
+    auto stream = std::make_unique<std::ofstream>(full, std::ios::binary);
+    if (!*stream)
+        return nullptr;
+
+    return stream;
+}

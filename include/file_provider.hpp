@@ -4,6 +4,7 @@
 #include <istream>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -24,6 +25,8 @@ public:
     virtual ~IFileProvider() = default;
     // returns nullptr if file not found or access denied
     virtual std::unique_ptr<std::istream> open(const std::string& filename) = 0;
+    // returns nullptr if file already exists, path invalid, or cannot create
+    virtual std::unique_ptr<std::ostream> create(const std::string& filename) = 0;
 };
 
 // Serves files from root_dir; rejects path traversal attempts (e.g. ../../etc/passwd)
@@ -31,6 +34,7 @@ class LocalFileProvider : public IFileProvider {
 public:
     explicit LocalFileProvider(std::string root_dir);
     std::unique_ptr<std::istream> open(const std::string& filename) override;
+    std::unique_ptr<std::ostream> create(const std::string& filename) override;
 
 private:
     std::string root_dir_;
@@ -51,6 +55,35 @@ public:
         return std::make_unique<std::istringstream>(it->second, std::ios::binary);
     }
 
+    std::unique_ptr<std::ostream> create(const std::string& filename) override {
+        if (!is_valid_path(filename))
+            return nullptr;
+        if (files_.count(filename))
+            return nullptr;
+        files_[filename] = "";
+        return std::make_unique<CaptureStream>(files_[filename]);
+    }
+
 private:
+    struct CaptureBuf : public std::streambuf {
+        std::string  data;
+        std::string& target;
+        explicit CaptureBuf(std::string& t) : target(t) {}
+        ~CaptureBuf() override { target = data; }
+        int overflow(int c) override {
+            if (c != EOF) data += static_cast<char>(c);
+            return c;
+        }
+        std::streamsize xsputn(const char* s, std::streamsize n) override {
+            data.append(s, n);
+            return n;
+        }
+    };
+
+    struct CaptureStream : public std::ostream {
+        CaptureBuf buf_;
+        explicit CaptureStream(std::string& target) : std::ostream(&buf_), buf_(target) {}
+    };
+
     std::map<std::string, std::string> files_;
 };
