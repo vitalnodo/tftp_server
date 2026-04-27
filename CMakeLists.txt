@@ -12,3 +12,11 @@ add_executable(tftp_server
 )
 
 target_include_directories(tftp_server PRIVATE include)
+
+add_executable(tftp_tests
+    tests/test_main.cpp
+    src/session.cpp
+    src/file_provider.cpp
+)
+
+target_include_directories(tftp_tests PRIVATE include)
