@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -11,6 +12,9 @@
 #include "tftp.hpp"
 
 static constexpr size_t RECV_BUF_SIZE = 1024;
+static constexpr int    MAX_SESSIONS  = 64;
+
+static std::atomic<int> active_sessions{0};
 
 static bool same_addr(const sockaddr_storage& a, const sockaddr_storage& b) {
     if (a.ss_family != AF_INET6 || b.ss_family != AF_INET6)
@@ -101,12 +105,20 @@ int main(int argc, char* argv[]) {
         try {
             auto pkt = parse(buf.data(), static_cast<size_t>(n));
 
+            if (active_sessions >= MAX_SESSIONS) {
+                auto err = serialize(ErrorPacket{ErrorCode::NotDefined, "server busy"});
+                sock.sendto(err.data(), err.size(), client);
+                continue;
+            }
+
             auto session_sock = std::make_unique<UdpSocket>();
             session_sock->bind(0);
             session_sock->set_recv_timeout(5);
 
+            ++active_sessions;
             std::thread([s = std::move(session_sock), client, pkt, &files]() {
-                run_session(*s, client, pkt, files);
+                try { run_session(*s, client, pkt, files); } catch (...) {}
+                --active_sessions;
             }).detach();
         } catch (const std::exception& e) {
             std::cerr << "error: " << e.what() << "\n";
