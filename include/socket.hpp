@@ -21,6 +21,7 @@ public:
     void bind(uint16_t port) override;
     ssize_t sendto(const void* buf, size_t len, const sockaddr_storage& addr) override;
     ssize_t recvfrom(void* buf, size_t len, sockaddr_storage& addr) override;
+    void set_recv_timeout(int seconds);
 
 private:
     int fd_;

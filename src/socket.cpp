@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <stdexcept>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 UdpSocket::UdpSocket() {
@@ -37,4 +38,12 @@ ssize_t UdpSocket::recvfrom(void* buf, size_t len, sockaddr_storage& addr) {
     socklen_t addrlen = sizeof(addr);
     return ::recvfrom(fd_, buf, len, 0,
                       reinterpret_cast<sockaddr*>(&addr), &addrlen);
+}
+
+void UdpSocket::set_recv_timeout(int seconds) {
+    struct timeval tv{};
+    tv.tv_sec  = seconds;
+    tv.tv_usec = 0;
+    if (::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+        throw std::runtime_error("setsockopt(SO_RCVTIMEO) failed");
 }

@@ -1,4 +1,5 @@
 #include <array>
+#include <cstring>
 #include <iostream>
 #include <netinet/in.h>
 
@@ -8,6 +9,15 @@
 #include "tftp.hpp"
 
 static constexpr size_t RECV_BUF_SIZE = 1024;
+
+static bool same_addr(const sockaddr_storage& a, const sockaddr_storage& b) {
+    if (a.ss_family != AF_INET6 || b.ss_family != AF_INET6)
+        return false;
+    const auto& a6 = reinterpret_cast<const sockaddr_in6&>(a);
+    const auto& b6 = reinterpret_cast<const sockaddr_in6&>(b);
+    return a6.sin6_port == b6.sin6_port &&
+           std::memcmp(&a6.sin6_addr, &b6.sin6_addr, sizeof(in6_addr)) == 0;
+}
 
 static void run_session(ISocket& sock, const sockaddr_storage& client,
                         const TftpPacket& initial, IFileProvider& files) {
@@ -26,6 +36,12 @@ static void run_session(ISocket& sock, const sockaddr_storage& client,
         ssize_t n = sock.recvfrom(buf.data(), buf.size(), from);
         if (n < 0)
             break;
+
+        if (!same_addr(from, client)) {
+            auto err = serialize(ErrorPacket{ErrorCode::UnknownTransferID, "unknown transfer ID"});
+            sock.sendto(err.data(), err.size(), from);
+            continue;
+        }
 
         try {
             auto pkt = parse(buf.data(), static_cast<size_t>(n));
@@ -82,7 +98,12 @@ int main(int argc, char* argv[]) {
 
         try {
             auto pkt = parse(buf.data(), static_cast<size_t>(n));
-            run_session(sock, client, pkt, files);
+
+            UdpSocket session_sock;
+            session_sock.bind(0);
+            session_sock.set_recv_timeout(5);
+
+            run_session(session_sock, client, pkt, files);
         } catch (const std::exception& e) {
             std::cerr << "error: " << e.what() << "\n";
         }
