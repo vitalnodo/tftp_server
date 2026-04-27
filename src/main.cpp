@@ -1,7 +1,9 @@
 #include <array>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <netinet/in.h>
+#include <thread>
 
 #include "file_provider.hpp"
 #include "session.hpp"
@@ -99,11 +101,13 @@ int main(int argc, char* argv[]) {
         try {
             auto pkt = parse(buf.data(), static_cast<size_t>(n));
 
-            UdpSocket session_sock;
-            session_sock.bind(0);
-            session_sock.set_recv_timeout(5);
+            auto session_sock = std::make_unique<UdpSocket>();
+            session_sock->bind(0);
+            session_sock->set_recv_timeout(5);
 
-            run_session(session_sock, client, pkt, files);
+            std::thread([s = std::move(session_sock), client, pkt, &files]() {
+                run_session(*s, client, pkt, files);
+            }).detach();
         } catch (const std::exception& e) {
             std::cerr << "error: " << e.what() << "\n";
         }
