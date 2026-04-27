@@ -36,14 +36,40 @@ static void run_session(ISocket& sock, const sockaddr_in& client,
     }
 }
 
+static void usage(const char* prog) {
+    std::cout << "Usage: " << prog << " [root_dir] [port]\n"
+              << "\n"
+              << "  root_dir  directory to serve files from (default: .)\n"
+              << "  port      UDP port to listen on       (default: 69, requires root)\n"
+              << "\n"
+              << "Examples:\n"
+              << "  " << prog << "                      # serve . on port 69\n"
+              << "  " << prog << " /srv/tftp             # serve /srv/tftp on port 69\n"
+              << "  " << prog << " ./files 6969          # serve ./files on port 6969\n";
+}
+
 int main(int argc, char* argv[]) {
-    std::string root_dir = argc > 1 ? argv[1] : ".";
+    if (argc > 1 && (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help")) {
+        usage(argv[0]);
+        return 0;
+    }
+
+    std::string root_dir  = argc > 1 ? argv[1] : ".";
+    uint16_t    port      = argc > 2 ? static_cast<uint16_t>(std::stoi(argv[2])) : 69;
 
     LocalFileProvider files(root_dir);
     UdpSocket sock;
-    sock.bind(69);
+    try {
+        sock.bind(port);
+    } catch (const std::runtime_error&) {
+        std::cerr << "error: cannot bind to port " << port;
+        if (port < 1024)
+            std::cerr << " (ports below 1024 require root, try: sudo " << argv[0] << ")";
+        std::cerr << "\n";
+        return 1;
+    }
 
-    std::cout << "TFTP server listening on port 69, serving: " << root_dir << "\n";
+    std::cout << "TFTP server listening on port " << port << ", serving: " << root_dir << "\n";
 
     std::array<uint8_t, RECV_BUF_SIZE> buf;
     sockaddr_in client{};
