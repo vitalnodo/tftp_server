@@ -188,6 +188,53 @@ static void test_wrq_multiblock() {
     assert(session.state() == TftpSession::State::Done);
 }
 
+static void test_rrq_block_wraparound() {
+    // 65536 full blocks + 3 bytes crosses the block-number wrap (65535 → 0)
+    std::vector<uint8_t> content(65536 * 512 + 3, 0x55);
+    MockFileProvider files;
+    files.add_file("big.bin", content);
+    TftpSession session(files);
+
+    auto resp = session.handle(RrqPacket{"big.bin", "octet"});
+
+    for (uint32_t i = 1; i <= 65536; ++i) {
+        assert(resp.has_value());
+        assert(pkt_data(*resp).size() == 512);
+        uint16_t blk = static_cast<uint16_t>(i); // wraps at 65536 → 0
+        assert(pkt_block(*resp) == blk);
+        resp = session.handle(AckPacket{blk});
+    }
+    // final partial block (block 1 again after the wrap)
+    assert(resp.has_value());
+    assert(pkt_block(*resp) == 1);
+    assert(pkt_data(*resp).size() == 3);
+    resp = session.handle(AckPacket{1});
+    assert(!resp.has_value());
+    assert(session.state() == TftpSession::State::Done);
+}
+
+static void test_wrq_block_wraparound() {
+    MockFileProvider files;
+    TftpSession session(files);
+
+    session.handle(WrqPacket{"big.bin", "octet"}); // ACK(0)
+
+    std::vector<uint8_t> full_block(512, 0x42);
+
+    for (uint32_t i = 1; i <= 65536; ++i) {
+        uint16_t blk = static_cast<uint16_t>(i); // wraps at 65536 → 0
+        auto resp = session.handle(DataPacket{blk, full_block});
+        assert(resp.has_value());
+        assert(pkt_block(*resp) == blk);
+        assert(session.state() == TftpSession::State::ReceivingFile);
+    }
+    // final partial block (block 1 again after the wrap)
+    auto resp = session.handle(DataPacket{1, bytes("end")});
+    assert(resp.has_value());
+    assert(pkt_block(*resp) == 1);
+    assert(session.state() == TftpSession::State::Done);
+}
+
 // --- parse / serialize tests ---
 
 static void test_parse_rrq() {
@@ -249,6 +296,8 @@ int main() {
     RUN(test_wrq_path_traversal);
     RUN(test_wrq_receives_data);
     RUN(test_wrq_multiblock);
+    RUN(test_rrq_block_wraparound);
+    RUN(test_wrq_block_wraparound);
 
     RUN(test_parse_rrq);
     RUN(test_parse_ack);

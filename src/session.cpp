@@ -35,7 +35,7 @@ std::optional<std::vector<uint8_t>> TftpSession::on_data(const DataPacket& pkt) 
     if (state_ != State::ReceivingFile)
         return serialize(ErrorPacket{ErrorCode::IllegalOperation, "unexpected DATA"});
 
-    if (pkt.block != block_ + 1)
+    if (pkt.block != static_cast<uint16_t>(block_ + 1))
         return std::nullopt; // out-of-order, ignore
 
     ++block_;
